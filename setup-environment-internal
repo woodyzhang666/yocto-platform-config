@@ -61,81 +61,106 @@ if [ $# -gt 1 ]; then
     usage
     return 1
 fi
+
+if which whiptail > /dev/null 2>&1; then
+	DIALOG_CMD="whiptail"
+elif which dialog > /dev/null 2>&1; then
+	DIALOG_CMD="dialog"
+else
+	echo "No whiptail or dialog found. Please install either or check PATH"
+	return
+fi
+
 # create a common list of "<machine>(<layer>)", sorted by <machine>
 # Blacklist OE-core and meta-linaro, we only want 96boards + vendor layers
 MACHLAYERS=$(find layers -print | grep "conf/machine/.*\.conf" | grep -v scripts | sed -e 's/\.conf//g' -e 's/layers\///' | awk -F'/conf/machine/' '{print $NF "(" $1 ")"}' | LANG=C sort)
+PRDMACHS=$(find conf/ -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $2}' | LANG=C sort | tr '\n' ' ')
+
+MACHINETABLE=
+for item in $MACHLAYERS; do
+	mach=$(echo "$item" | cut -d'(' -f1)
+	layer=$(echo "$item" | cut -d'(' -f2 | cut -d')' -f1)
+	if [[ ! " ${PRDMACHS[*]} " =~ " ${mach} " ]]; then
+		continue
+	fi
+    MACHINETABLE="${MACHINETABLE} ${mach} ${layer}"
+done
+
+for prdmach in $PRDMACHS; do
+	if [[ ! " ${MACHINETABLE[*]} " =~ " ${prdmach} " ]]; then
+		echo warning: machine \"${prdmach}\" not found in any layer
+	fi
+done
 
 if [ -z "${MACHINE}" ]; then
-    # whiptail
-    which whiptail > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        MACHINETABLE=
-        for ITEM in $MACHLAYERS; do
-            MACHINETABLE="${MACHINETABLE} $(echo "$ITEM" | cut -d'(' -f1) $(echo "$ITEM" | cut -d'(' -f2 | cut -d')' -f1)"
-        done
-        MACHINE=$(whiptail --title "Available Machines" --menu \
-            "Please choose a machine" 0 0 20 \
-            ${MACHINETABLE} 3>&1 1>&2 2>&3)
-    fi
+    MACHINE=$($DIALOG_CMD --title "Available Machines" --menu \
+		"Please choose a machine" 0 0 20 \
+        ${MACHINETABLE} 3>&1 1>&2 2>&3)
+	echo MACHINE is $MACHINE
+fi
 
-    # dialog
-    if [ -z "$MACHINE" ]; then
-        which dialog > /dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            MACHINETABLE=
-            for ITEM in $MACHLAYERS; do
-                MACHINETABLE="$MACHINETABLE $(echo "$ITEM" | cut -d'(' -f1) $(echo "$ITEM" | cut -d'(' -f2 | cut -d')' -f1)"
-            done
-            MACHINE=$(dialog --title "Available Machines" --menu "Please choose a machine" 0 0 20 $MACHINETABLE 3>&1 1>&2 2>&3)
-        fi
-    fi
+# Need this check for MACHINE from env
+if [[ ! " ${PRDMACHS[*]} " =~ " ${MACHINE} " ]]; then
+	echo error: $MACHINE not listed in "($PRDMACHS)"
+	return
 fi
 
 # create a common list of "<distro>(<layer>)", sorted by <distro>
 # Blacklist OE-core and meta-linaro, we only want 96boards + vendor layers
 DISTROLAYERS=$(find layers -print | grep "conf/distro/.*\.conf" | grep -v scripts | sed -e 's/\.conf//g' -e 's/layers\///' | awk -F'/conf/distro/' '{print $NF "(" $1 ")"}' | LANG=C sort)
+PRDDISTROS=$(find conf/$MACHINE -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $3}' | LANG=C sort)
+
+DISTROTABLE=
+for item in $DISTROLAYERS; do
+	distro=$(echo "$item" | cut -d'(' -f1)
+	layer=$(echo "$item" | cut -d'(' -f2 | cut -d')' -f1)
+	if [[ ! " ${PRDDISTROS[*]} " =~ " ${distro} " ]]; then
+		continue
+	fi
+    DISTROTABLE="${DISTROTABLE} ${distro} ${layer}"
+done
+
+for prddistro in $PRDDISTROS; do
+	if [[ ! " ${DISTROTABLE[*]} " =~ " ${prddistro} " ]]; then
+		echo warning: distro $ITEM not found in any layer
+	fi
+done
 
 if [ -n "${DISTROLAYERS}" ] && [ -z "${DISTRO}" ]; then
-    # whiptail
-    which whiptail > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        DISTROTABLE=
-        for ITEM in $DISTROLAYERS; do
-            DISTROTABLE="${DISTROTABLE} $(echo "$ITEM" | cut -d'(' -f1) $(echo "$ITEM" | cut -d'(' -f2 | cut -d')' -f1)"
-        done
-        DISTRO=$(whiptail --title "Available Distributions" --menu \
-            "Please choose a distribution" 0 0 20 \
-            ${DISTROTABLE} 3>&1 1>&2 2>&3)
-    fi
-
-    # dialog
-    if [ -z "$DISTRO" ]; then
-        which dialog > /dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            DISTROTABLE=
-            for ITEM in $DISTROLAYERS; do
-                DISTROTABLE="$DISTROTABLE $(echo "$ITEM" | cut -d'(' -f1) $(echo "$ITEM" | cut -d'(' -f2 | cut -d')' -f1)"
-            done
-            DISTRO=$(dialog --title "Available Distributions" --menu "Please choose a distribution" 0 0 20 $DISTROTABLE 3>&1 1>&2 2>&3)
-        fi
-    fi
+    DISTRO=$($DIALOG_CMD --title "Available Distributions" --menu \
+        "Please choose a distribution" 0 0 20 \
+        ${DISTROTABLE} 3>&1 1>&2 2>&3)
 fi
 
 # If nothing has been set, go for 'nodistro'
 if [ -z "$DISTRO" ]; then
     DISTRO="nodistro"
+elif [ $DISTRO != "nodistro" ]; then
+	if [[ ! " ${PRDDISTROS[*]} " =~ " ${DISTRO} " ]]; then
+		echo error: $DISTRO not listed in "($PRDDISTROS)"
+		return
+	fi
 fi
 
-# guard against Ctrl-D or cancel
-if [ -z "$MACHINE" ]; then
-    echo "To choose a machine interactively please install whiptail or dialog."
-    echo "To choose a machine non-interactively please use the following syntax:"
-    echo "    MACHINE=<your-machine> . ./setup-environment"
-    echo ""
-    echo "Press <ENTER> to see a list of your choices"
-    read -r
-    echo "$MACHLAYERS" | sed -e 's/(/ (/g' | sed -e 's/)/)\n/g' | sed -e 's/^ */\t/g'
-    return
+PRDS=$(find conf/$MACHINE/$DISTRO -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $4}' | LANG=C sort)
+if [ -z "${PRDS}" ]; then
+	echo No products supported! Please port one.
+	return
+fi
+PRDINFO=
+for prd in $PRDS; do
+	info="none"
+	PRDINFO="${PRDINFO} ${prd} ${info}"
+done
+echo PRDINFO: $PRDINFO
+if [ -z "${PRD}" ]; then
+	PRD=$($DIALOG_CMD --title "Available Products" --menu \
+		"Please choose a product" 0 0 20 \
+		${PRDINFO} 3>&1 1>&2 2>&3)
+fi
+if [[ ! " ${PRDS[*]} " =~ " ${PRD} " ]]; then
+	echo ${PRD} not listed in "(${PRDS})"
+	return
 fi
 
 if [ -z "${SDKMACHINE}" ]; then
@@ -145,7 +170,7 @@ fi
 #MANIFESTS="${OEROOT}"/.repo/manifests
 
 # we can be called with only 1 parameter max, <build> folder, or default to build-$distro
-BUILDDIR=build-$DISTRO
+BUILDDIR=build-$MACHINE-$DISTRO-$PRD
 if [ $# -eq 1 ]; then
     BUILDDIR=$1
 fi
@@ -159,7 +184,7 @@ export PATH="${OEROOT}"/layers/openembedded-core/scripts:"${OEROOT}"/bitbake/bin
 export PATH=$(echo "$PATH" | awk -F: '{for (i=1;i<=NF;i++) { if ( !x[$i]++ ) printf("%s:",$i); }}' | sed 's/:$//')
 # Make sure Bitbake doesn't filter out the following variables from our
 # environment.
-export BB_ENV_PASSTHROUGH_ADDITIONS="MACHINE DISTRO TCLIBC TCMODE GIT_PROXY_COMMAND http_proxy ftp_proxy https_proxy all_proxy ALL_PROXY no_proxy SSH_AGENT_PID SSH_AUTH_SOCK BB_SRCREV_POLICY SDKMACHINE BB_NUMBER_THREADS"
+export BB_ENV_PASSTHROUGH_ADDITIONS="MACHINE DISTRO PRD TCLIBC TCMODE GIT_PROXY_COMMAND http_proxy ftp_proxy https_proxy all_proxy ALL_PROXY no_proxy SSH_AGENT_PID SSH_AUTH_SOCK BB_SRCREV_POLICY SDKMACHINE BB_NUMBER_THREADS"
 
 # Helper command for building images for mixed 32bit/64bit
 # ARM builds. The command allow to specify a secondary MACHINE
@@ -237,7 +262,7 @@ fi
 sha512sum "${OEROOT}"/conf/setup-environment-internal 2>&1 > conf/checksum
 
 ln -sf ../../conf/local.conf conf/local.conf
-ln -sf ../../conf/${MACHINE}/bblayers.conf conf/bblayers.conf
+ln -sf ../../conf/${MACHINE}/${DISTRO}/${PRD}/bblayers.conf conf/bblayers.conf
 #ln -sf "${MANIFESTS}"/README.md README.md
 
 #ln -sf "${MANIFESTS}" "${OEROOT}"/layers/
@@ -255,8 +280,8 @@ EOF
 
 # If a machine provides some additional configuration, append it to auto.conf
 # to allow the user to change it in local.conf
-if [ -f "${OEROOT}/conf/${MACHINE}/local.conf" ]; then
-	cat "${OEROOT}/conf/${MACHINE}/local.conf" >> conf/auto.conf
+if [ -f "${OEROOT}/conf/${MACHINE}/${DISTRO}/${PRD}/local.conf" ]; then
+	cat "${OEROOT}/conf/${MACHINE}/${DISTRO}/${PRD}/local.conf" >> conf/auto.conf
 fi
 
 if [ ! -e conf/site.conf ]; then
@@ -358,6 +383,7 @@ Your build environment has been configured with:
     MACHINE = ${MACHINE}
     SDKMACHINE = ${SDKMACHINE}
     DISTRO = ${DISTRO}
+    PRD = ${PRD}
 
 You can now run 'bitbake <target>'
 
