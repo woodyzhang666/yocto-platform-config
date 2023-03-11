@@ -108,7 +108,7 @@ fi
 # create a common list of "<distro>(<layer>)", sorted by <distro>
 # Blacklist OE-core and meta-linaro, we only want 96boards + vendor layers
 DISTROLAYERS=$(find layers -print | grep "conf/distro/.*\.conf" | grep -v scripts | sed -e 's/\.conf//g' -e 's/layers\///' | awk -F'/conf/distro/' '{print $NF "(" $1 ")"}' | LANG=C sort)
-PRDDISTROS=$(find conf/$MACHINE -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $3}' | LANG=C sort)
+PRDDISTROS=$(find conf/$MACHINE -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $3}' | LANG=C sort | tr '\n' ' ')
 
 DISTROTABLE=
 for item in $DISTROLAYERS; do
@@ -142,7 +142,7 @@ elif [ $DISTRO != "nodistro" ]; then
 	fi
 fi
 
-PRDS=$(find conf/$MACHINE/$DISTRO -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $4}' | LANG=C sort)
+PRDS=$(find conf/$MACHINE/$DISTRO -maxdepth 1 -mindepth 1 -type d -print | awk -F'/' '{print $4}' | LANG=C sort | tr '\n' ' ')
 if [ -z "${PRDS}" ]; then
 	echo No products supported! Please port one.
 	return
